@@ -1,9 +1,8 @@
 # Input variables for the laravel-cloud-service module.
 #
-# Every workspace service (identity, commerce, api, ai, ...) is composed
-# from this module via a per-service `.tf` file in the env root. The input
-# shape mirrors `.kiro/cloud/apps/*.yaml` so an operator can move between
-# the two representations mechanically during Phase 4 (state import).
+# The input shape mirrors `.kiro/cloud/apps/<slug>.yaml` (the legacy
+# workspace-tracked manifest) so operators moving from the PHP CLI to
+# Terraform have a mechanical 1:1 translation.
 
 variable "name" {
   description = "Service slug — matches the workspace slug from .kiro/cloud/apps/<slug>.yaml. Used as the Cloud application name."
@@ -16,12 +15,12 @@ variable "name" {
 }
 
 variable "organization_id" {
-  description = "Cloud organisation ID this service belongs to. ULID shape (org_01H...). See workspace.yaml for canonical IDs per org."
+  description = "Cloud organisation ID this service belongs to. ULID shape (org_01H...)."
   type        = string
 }
 
 variable "region" {
-  description = "Deploy region. Immutable post-create. Common values: us-east-1, eu-west-1, ap-southeast-1."
+  description = "Deploy region. Immutable post-create."
   type        = string
   default     = "us-east-1"
 }
@@ -38,13 +37,13 @@ variable "source_control_provider_type" {
 }
 
 variable "repository" {
-  description = "Repository identifier in `owner/repo` shape. Optional — omit for manually-deployed applications."
+  description = "Repository identifier in `owner/repo` shape."
   type        = string
   default     = null
 }
 
 variable "slack_channel" {
-  description = "Slack channel for deploy notifications. Optional."
+  description = "Slack channel for deploy notifications."
   type        = string
   default     = null
 }
@@ -56,37 +55,49 @@ variable "cluster_id" {
 }
 
 # ────────────────────────────────────────────────────────────────
-# Phase 2 inputs — declared here so the module signature stabilises
-# but currently no-op'd until the provider ships the matching resource
-# types (environment, database_schema, cache, bucket, websocket_app,
-# domain). Consumer HCL can pass these values today; the module ignores
-# them cleanly.
+# Per-environment configuration
 # ────────────────────────────────────────────────────────────────
 
 variable "environments" {
-  description = "Per-environment configuration. Keys: env slug (dev/stg/prd). Values: env-specific overrides. Consumed in Phase 2 by the laravelcloud_environment resource."
+  description = "Per-environment configuration. Keys: env slug (dev/stg/prd). Values: env-specific config translated to laravelcloud_environment + cache + websocket resources."
   type = map(object({
-    branch    = optional(string)
-    variables = optional(map(string), {})
-    inherits  = optional(string) # env slug to inherit from
+    branch                    = optional(string)
+    variables                 = optional(map(string), {})
+    inherits                  = optional(string) # env slug to inherit from
+    cache_size                = optional(string, "valkey-pro.1gb")
+    websocket_max_connections = optional(number, 500)
   }))
   default = {}
 }
 
+# ────────────────────────────────────────────────────────────────
+# Shared cluster bindings
+# ────────────────────────────────────────────────────────────────
+
 variable "database_cluster_id" {
-  description = "Shared database cluster this service's schemas live in. When null the module skips database provisioning. Consumed in Phase 2."
+  description = "Shared database cluster ID this service's schemas live in. When null the module skips database provisioning."
   type        = string
   default     = null
+}
+
+variable "attach_cache" {
+  description = "When true, provision a per-env Valkey/Redis cache. Size comes from environments[<env>].cache_size."
+  type        = bool
+  default     = false
 }
 
 variable "websocket_cluster_id" {
-  description = "Shared WebSocket cluster this service's ws-apps live in. When null the module skips WS provisioning. Consumed in Phase 2."
+  description = "Shared WebSocket cluster ID. When null the module skips WS provisioning."
   type        = string
   default     = null
 }
 
+# ────────────────────────────────────────────────────────────────
+# Buckets + domains
+# ────────────────────────────────────────────────────────────────
+
 variable "buckets" {
-  description = "S3-compatible buckets this service owns. Each entry maps a logical name → bucket config. Consumed in Phase 2."
+  description = "S3-compatible buckets this service owns. Each entry creates one bucket PER ENV. Name pattern: <service>-<bucket>-<env>."
   type = list(object({
     name   = string
     region = optional(string)
@@ -96,13 +107,13 @@ variable "buckets" {
 }
 
 variable "domains" {
-  description = "Custom domains bound to this service's environments. Each entry maps env slug → hostname. Consumed in Phase 2."
+  description = "Custom domains bound to this service's environments. Map shape: { <env> = \"<hostname>\" }."
   type        = map(string)
   default     = {}
 }
 
 variable "tags" {
-  description = "Free-form tags for cost attribution + audit. Applied to every resource the module creates."
+  description = "Free-form tags for cost attribution + audit."
   type        = map(string)
   default     = {}
 }

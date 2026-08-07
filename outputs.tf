@@ -1,14 +1,12 @@
-# Outputs — the surface consuming HCL references. Every downstream module
-# that needs to bind a Cloudflare zone / Doppler config / observability
-# probe to this service reaches for these values.
+# Outputs — the surface consuming HCL references.
 
 output "application_id" {
-  description = "Cloud-assigned application ID (ULID). Immutable."
+  description = "Cloud-assigned application ID."
   value       = laravelcloud_application.this.id
 }
 
 output "application_slug" {
-  description = "URL-safe slug derived from name by Cloud. Used to build predictable domain names + Doppler project slugs."
+  description = "URL-safe slug derived from name by Cloud. Used to build .laravel.cloud endpoints."
   value       = laravelcloud_application.this.slug
 }
 
@@ -27,27 +25,34 @@ output "created_at" {
   value       = laravelcloud_application.this.created_at
 }
 
-# ────────────────────────────────────────────────────────────────
-# Phase 2 outputs (placeholders — populated once the matching resources
-# land in the provider).
-# ────────────────────────────────────────────────────────────────
+# Per-env outputs — maps of env slug → resource ID.
 
-# output "environment_ids" {
-#   description = "Map of env slug → environment ID. Phase 2."
-#   value       = { for k, v in laravelcloud_environment.envs : k => v.id }
-# }
+output "environment_ids" {
+  description = "Map of env slug → environment ID."
+  value       = { for k, v in laravelcloud_environment.envs : k => v.id }
+}
 
-# output "database_schema_ids" {
-#   description = "Map of env slug → database schema ID. Phase 2."
-#   value       = { for k, v in laravelcloud_database_schema.schemas : k => v.id }
-# }
+output "database_schema_ids" {
+  description = "Map of env slug → database schema ID. Empty when database_cluster_id is unset."
+  value       = { for k, v in laravelcloud_database_schema.schemas : k => v.id }
+}
 
-# output "websocket_app_ids" {
-#   description = "Map of env slug → WS app ID. Phase 2."
-#   value       = { for k, v in laravelcloud_websocket_app.ws_apps : k => v.id }
-# }
+output "cache_ids" {
+  description = "Map of env slug → cache ID. Empty when attach_cache is false."
+  value       = { for k, v in laravelcloud_cache.caches : k => v.id }
+}
 
-# output "bucket_names" {
-#   description = "Map of bucket logical name → provisioned Cloud name. Phase 2."
-#   value       = { for k, v in laravelcloud_bucket.buckets : k => v.name }
-# }
+output "websocket_app_ids" {
+  description = "Map of env slug → WS app ID. Empty when websocket_cluster_id is unset."
+  value       = { for k, v in laravelcloud_websocket_app.ws_apps : k => v.id }
+}
+
+output "bucket_ids" {
+  description = "Map of <env>-<bucket-name> → bucket ID."
+  value       = { for k, v in laravelcloud_bucket.buckets : k => v.id }
+}
+
+output "domain_ids" {
+  description = "Map of env slug → domain binding ID."
+  value       = { for k, v in laravelcloud_domain.domains : k => v.id }
+}
