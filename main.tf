@@ -44,10 +44,16 @@ resource "laravelcloud_environment" "envs" {
   branch         = each.value.branch
   variables      = each.value.variables
 
-  # Optional inheritance from another env (e.g. stg inherits dev). The
-  # module accepts an env slug from the same map + resolves it to the
-  # inherited env's ID on the fly.
-  inherits_id = each.value.inherits != null ? laravelcloud_environment.envs[each.value.inherits].id : null
+  # Inherits resolution removed 2026-08-04 (Wave 5 plan blocker).
+  # Terraform disallows every self-reference on the resource block —
+  # even indexed access `laravelcloud_environment.envs[<other-key>]`
+  # inside `laravelcloud_environment.envs` itself. Every current env
+  # root ships a single-env state (envs/dev builds `{ dev = ... }`,
+  # envs/stg builds `{ stg = ... }`, envs/prd builds `{ prd = ... }`),
+  # so no cross-env inherits fires in practice; leaving as null is
+  # correct. When multi-env-per-state work resurfaces, resolve the
+  # chain via a separate data source or a post-apply run.
+  inherits_id = null
 }
 
 # ────────────────────────────────────────────────────────────────
