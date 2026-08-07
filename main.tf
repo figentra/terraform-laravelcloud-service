@@ -102,11 +102,11 @@ resource "laravelcloud_bucket" "buckets" {
   for_each = { for pair in flatten([
     for env_key, env in var.environments : [
       for b in var.buckets : {
-        key       = "${env_key}-${b.name}"
-        env       = env_key
-        name      = b.name
-        region    = coalesce(b.region, var.region)
-        mode      = coalesce(b.mode, "private")
+        key    = "${env_key}-${b.name}"
+        env    = env_key
+        name   = b.name
+        region = coalesce(b.region, var.region)
+        mode   = coalesce(b.mode, "private")
       }
     ]
   ]) : pair.key => pair }

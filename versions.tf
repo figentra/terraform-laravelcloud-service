@@ -11,8 +11,8 @@ terraform {
 
   required_providers {
     laravelcloud = {
-      source  = "stackra/laravel-cloud"
-      version = "~> 0.1"
+      source  = "figentra/laravel-cloud"
+      version = "~> 0.3"
     }
   }
 }
