@@ -75,9 +75,21 @@ variable "environments" {
 # ────────────────────────────────────────────────────────────────
 
 variable "database_cluster_id" {
-  description = "Shared database cluster ID this service's schemas live in. When null the module skips database provisioning."
+  description = "Shared database cluster ID this service's schemas live in. Consumed by the schema resource when attach_database=true."
   type        = string
   default     = null
+}
+
+variable "attach_database" {
+  description = <<-DESC
+    When true, provision one laravelcloud_database_schema per env
+    under database_cluster_id. Must be plan-time-known — do NOT
+    derive from a resource output (that yields "known after apply"
+    which breaks for_each key resolution). Callers set this bool
+    statically alongside passing database_cluster_id.
+  DESC
+  type        = bool
+  default     = false
 }
 
 variable "attach_cache" {
@@ -87,9 +99,20 @@ variable "attach_cache" {
 }
 
 variable "websocket_cluster_id" {
-  description = "Shared WebSocket cluster ID. When null the module skips WS provisioning."
+  description = "Shared WebSocket cluster ID. Consumed by the WS-app resource when attach_websocket=true."
   type        = string
   default     = null
+}
+
+variable "attach_websocket" {
+  description = <<-DESC
+    When true, provision one laravelcloud_websocket_app per env
+    binding to websocket_cluster_id. Plan-time-known bool — see
+    attach_database for the rationale (for_each keys must resolve
+    at plan time; deriving from a resource output blocks the plan).
+  DESC
+  type        = bool
+  default     = false
 }
 
 # ────────────────────────────────────────────────────────────────

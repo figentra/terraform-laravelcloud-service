@@ -59,7 +59,12 @@ resource "laravelcloud_environment" "envs" {
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_database_schema" "schemas" {
-  for_each = var.database_cluster_id != null ? var.environments : {}
+  # for_each keys resolve at plan time via `var.attach_database`
+  # (a static bool). The previous shape `var.database_cluster_id
+  # != null ? var.environments : {}` derived the key set from a
+  # resource-output value (apply-time-unknown), which broke plan.
+  # Fix landed 2026-08-04 — Wave 5 plan blocker.
+  for_each = var.attach_database ? var.environments : {}
 
   cluster_id = var.database_cluster_id
   name       = "${replace(var.name, "-", "_")}_${each.key}"
@@ -86,7 +91,9 @@ resource "laravelcloud_cache" "caches" {
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_websocket_app" "ws_apps" {
-  for_each = var.websocket_cluster_id != null ? var.environments : {}
+  # See attach_database in variables.tf for the plan-time-known-bool
+  # rationale. Same fix (2026-08-04 Wave 5 plan blocker).
+  for_each = var.attach_websocket ? var.environments : {}
 
   cluster_id      = var.websocket_cluster_id
   environment_id  = laravelcloud_environment.envs[each.key].id
