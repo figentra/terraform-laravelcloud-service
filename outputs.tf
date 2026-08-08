@@ -33,7 +33,7 @@ output "environment_ids" {
 }
 
 output "database_schema_ids" {
-  description = "Map of env slug → database schema ID. Empty when database_cluster_id is unset."
+  description = "Map of env slug → database schema ID. Empty when attach_database is false."
   value       = { for k, v in laravelcloud_database_schema.schemas : k => v.id }
 }
 
@@ -43,7 +43,7 @@ output "cache_ids" {
 }
 
 output "websocket_app_ids" {
-  description = "Map of env slug → WS app ID. Empty when websocket_cluster_id is unset."
+  description = "Map of env slug → WS app ID. Empty when attach_websocket is false."
   value       = { for k, v in laravelcloud_websocket_app.ws_apps : k => v.id }
 }
 

@@ -3,6 +3,20 @@
 # The input shape mirrors `.kiro/cloud/apps/<slug>.yaml` (the legacy
 # workspace-tracked manifest) so operators moving from the PHP CLI to
 # Terraform have a mechanical 1:1 translation.
+#
+# v0.4.0 (Cloud API v2 alignment):
+#   - organization_id kept as a deprecated no-op variable so existing
+#     consuming HCL doesn't break at plan-time. Callers can drop it on
+#     the next major module bump.
+#   - Cache: added cache_type / cache_auto_upgrade_enabled / cache_is_public
+#     / cache_eviction_policy.
+#   - Bucket: object schema changed — mode→visibility, region→jurisdiction,
+#     added key_permission. Old fields dropped from the object type.
+#   - Domain: added domain_defaults object for www_redirect /
+#     verification_method / cloudflare_strategy.
+#   - Websocket: max_connections is now cluster-scoped; the module no
+#     longer accepts a per-env override for it (set on the shared
+#     websocket_cluster resource).
 
 variable "name" {
   description = "Service slug — matches the workspace slug from .kiro/cloud/apps/<slug>.yaml. Used as the Cloud application name."
@@ -14,10 +28,24 @@ variable "name" {
   }
 }
 
+# ────────────────────────────────────────────────────────────────
+# Legacy — kept as a no-op for backward compat with consuming HCL.
+# ────────────────────────────────────────────────────────────────
+
 variable "organization_id" {
-  description = "Cloud organisation ID this service belongs to. ULID shape (org_01H...)."
+  description = <<-DESC
+    DEPRECATED. Cloud API v2 removed organization scoping from every
+    resource — the token itself carries the org scope. This variable
+    is accepted for backward compat with existing consuming HCL but
+    is not used. Drop from callers on the next module major bump.
+  DESC
   type        = string
+  default     = null
 }
+
+# ────────────────────────────────────────────────────────────────
+# Application
+# ────────────────────────────────────────────────────────────────
 
 variable "region" {
   description = "Deploy region. Immutable post-create."
@@ -28,7 +56,7 @@ variable "region" {
 variable "source_control_provider_type" {
   description = "Source control provider — one of github, gitlab, bitbucket. Immutable post-create."
   type        = string
-  default     = "github"
+  default     = "gitlab"
 
   validation {
     condition     = contains(["github", "gitlab", "bitbucket"], var.source_control_provider_type)
@@ -37,9 +65,8 @@ variable "source_control_provider_type" {
 }
 
 variable "repository" {
-  description = "Repository identifier in `owner/repo` shape."
+  description = "Repository identifier in `owner/repo` shape. REQUIRED — Cloud API v2 rejects apps without one."
   type        = string
-  default     = null
 }
 
 variable "slack_channel" {
@@ -59,13 +86,21 @@ variable "cluster_id" {
 # ────────────────────────────────────────────────────────────────
 
 variable "environments" {
-  description = "Per-environment configuration. Keys: env slug (dev/stg/prd). Values: env-specific config translated to laravelcloud_environment + cache + websocket resources."
+  description = <<-DESC
+    Per-environment configuration. Keys: env slug (dev/stg/prd). Values:
+    env-specific config translated to laravelcloud_environment + cache
+    + ws_app + bucket resources.
+
+    Note: `websocket_max_connections` and `inherits` fields are deprecated
+    no-ops (max_connections is now on the cluster; inherits was removed
+    from Cloud API v2).
+  DESC
   type = map(object({
     branch                    = optional(string)
     variables                 = optional(map(string), {})
-    inherits                  = optional(string) # env slug to inherit from
-    cache_size                = optional(string, "valkey-pro.1gb")
-    websocket_max_connections = optional(number, 500)
+    inherits                  = optional(string) # DEPRECATED no-op
+    cache_size                = optional(string, "cache-1gb")
+    websocket_max_connections = optional(number) # DEPRECATED no-op
   }))
   default = {}
 }
@@ -92,11 +127,56 @@ variable "attach_database" {
   default     = false
 }
 
+# ────────────────────────────────────────────────────────────────
+# Cache configuration
+# ────────────────────────────────────────────────────────────────
+
 variable "attach_cache" {
   description = "When true, provision a per-env Valkey/Redis cache. Size comes from environments[<env>].cache_size."
   type        = bool
   default     = false
 }
+
+variable "cache_type" {
+  description = <<-DESC
+    Cache backend — one of `upstash_redis`, `laravel_valkey`,
+    `aws_elasticache_redis`, `aws_elasticache_valkey`. Immutable
+    post-create. Defaults to Laravel Valkey (Cloud-managed).
+  DESC
+  type        = string
+  default     = "laravel_valkey"
+
+  validation {
+    condition     = contains(["upstash_redis", "laravel_valkey", "aws_elasticache_redis", "aws_elasticache_valkey"], var.cache_type)
+    error_message = "cache_type must be one of: upstash_redis, laravel_valkey, aws_elasticache_redis, aws_elasticache_valkey."
+  }
+}
+
+variable "cache_auto_upgrade_enabled" {
+  description = "When true, Cloud auto-upgrades the underlying cache software (patch versions)."
+  type        = bool
+  default     = true
+}
+
+variable "cache_is_public" {
+  description = "When true, the cache is publicly reachable. Prefer false + VPC binding — the default."
+  type        = bool
+  default     = false
+}
+
+variable "cache_eviction_policy" {
+  description = <<-DESC
+    Redis eviction policy — one of `allkeys-lru`, `noeviction`,
+    `volatile-lru`, `allkeys-random`, `volatile-random`, `volatile-ttl`,
+    `allkeys-lfu`, `volatile-lfu`. Null = Cloud default (`allkeys-lru`).
+  DESC
+  type        = string
+  default     = null
+}
+
+# ────────────────────────────────────────────────────────────────
+# WebSocket configuration
+# ────────────────────────────────────────────────────────────────
 
 variable "websocket_cluster_id" {
   description = "Shared WebSocket cluster ID. Consumed by the WS-app resource when attach_websocket=true."
@@ -107,9 +187,9 @@ variable "websocket_cluster_id" {
 variable "attach_websocket" {
   description = <<-DESC
     When true, provision one laravelcloud_websocket_app per env
-    binding to websocket_cluster_id. Plan-time-known bool — see
-    attach_database for the rationale (for_each keys must resolve
-    at plan time; deriving from a resource output blocks the plan).
+    on websocket_cluster_id, and bind the env to it via
+    `websocket_application_id`. Plan-time-known bool — see
+    attach_database for the rationale.
   DESC
   type        = bool
   default     = false
@@ -120,13 +200,26 @@ variable "attach_websocket" {
 # ────────────────────────────────────────────────────────────────
 
 variable "buckets" {
-  description = "S3-compatible buckets this service owns. Each entry creates one bucket PER ENV. Name pattern: <service>-<bucket>-<env>."
+  description = <<-DESC
+    S3-compatible buckets this service owns. Each entry creates one
+    bucket PER ENV. Name pattern: <service>-<bucket>-<env>. Every
+    bucket ships with a root access key named
+    <service>-<bucket>-<env>-root at read_write permission by
+    default; override per bucket via `key_permission`.
+  DESC
   type = list(object({
-    name   = string
-    region = optional(string)
-    mode   = optional(string, "private") # private / public
+    name           = string
+    jurisdiction   = optional(string)              # us / eu / me / ...
+    visibility     = optional(string, "private")   # private / public
+    key_permission = optional(string, "read_write") # read_only / read_write
   }))
   default = []
+}
+
+variable "default_bucket_jurisdiction" {
+  description = "Default jurisdiction (data-residency zone) for buckets that don't specify one."
+  type        = string
+  default     = "us"
 }
 
 variable "domains" {
@@ -135,8 +228,21 @@ variable "domains" {
   default     = {}
 }
 
+variable "domain_defaults" {
+  description = <<-DESC
+    Domain-binding defaults applied to every domain in var.domains.
+    Consumers override individual fields per env root if needed.
+  DESC
+  type = object({
+    www_redirect        = optional(string, "redirect_to_apex")   # redirect_to_apex / redirect_from_apex / no_redirect
+    verification_method = optional(string, "cloudflare")         # dns / cloudflare
+    cloudflare_strategy = optional(string, "orange_cloud")       # Cloud-integration strategy
+  })
+  default = {}
+}
+
 variable "tags" {
-  description = "Free-form tags for cost attribution + audit."
+  description = "Free-form tags for cost attribution + audit. Currently informational — Cloud API v2 doesn't expose a tags field yet."
   type        = map(string)
   default     = {}
 }

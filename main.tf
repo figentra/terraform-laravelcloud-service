@@ -5,21 +5,34 @@
 # commerce, api, ai, ...) uses this module once per env root to declare its
 # Cloud footprint.
 #
-# What this module creates (v0.2.0 provider — full canonical coverage):
+# What this module creates (v0.4.0 provider — Cloud API v2 aligned):
 #   - Application (top-level Cloud unit)
 #   - N environments (dev / stg / prd + preview-*)
-#   - N database schemas (one per env when var.database_cluster_id set)
-#   - N cache instances (one per env when var.attach_cache = true)
-#   - N WebSocket app bindings (one per env when var.websocket_cluster_id set)
-#   - N buckets (from var.buckets)
+#   - N database schemas (one per env when var.attach_database=true)
+#   - N cache instances (one per env when var.attach_cache=true)
+#   - N WebSocket apps (one per env when var.attach_websocket=true)
+#   - N buckets (from var.buckets × envs)
 #   - Domain bindings from var.domains
+#
+# Cloud API v2 changes vs v0.3:
+#   - organization_id is no longer accepted anywhere — it's derived from
+#     the API token's scope. Kept as a no-op variable for backward compat
+#     with consuming service HCL (deprecated; drop on next major).
+#   - websocket_app decoupled from environment: it's a name-scoped Reverb
+#     app on the cluster, and environments bind to it via
+#     `websocket_application_id`.
+#   - bucket: mode → visibility; region → jurisdiction; key_name +
+#     key_permission required.
+#   - domain: redirect_from_www → www_redirect (enum); verification →
+#     verification_method; cloudflare_managed → cloudflare_strategy (enum).
+#   - environment: variables managed via a separate call (transparent to
+#     terraform authors — the provider issues the second call automatically).
 
 # ────────────────────────────────────────────────────────────────
 # Application — the top-level Cloud unit for this service.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_application" "this" {
-  organization_id              = var.organization_id
   name                         = var.name
   region                       = var.region
   source_control_provider_type = var.source_control_provider_type
@@ -29,47 +42,15 @@ resource "laravelcloud_application" "this" {
 }
 
 # ────────────────────────────────────────────────────────────────
-# Environments — one resource per entry in var.environments.
-#
-# The map key IS the env slug (dev / stg / prd / preview-*). The
-# `for_each` binding stays stable across plans so re-ordering the map
-# doesn't force replacement.
-# ────────────────────────────────────────────────────────────────
-
-resource "laravelcloud_environment" "envs" {
-  for_each = var.environments
-
-  application_id = laravelcloud_application.this.id
-  name           = each.key
-  branch         = each.value.branch
-  variables      = each.value.variables
-
-  # Inherits resolution removed 2026-08-04 (Wave 5 plan blocker).
-  # Terraform disallows every self-reference on the resource block —
-  # even indexed access `laravelcloud_environment.envs[<other-key>]`
-  # inside `laravelcloud_environment.envs` itself. Every current env
-  # root ships a single-env state (envs/dev builds `{ dev = ... }`,
-  # envs/stg builds `{ stg = ... }`, envs/prd builds `{ prd = ... }`),
-  # so no cross-env inherits fires in practice; leaving as null is
-  # correct. When multi-env-per-state work resurfaces, resolve the
-  # chain via a separate data source or a post-apply run.
-  inherits_id = null
-}
-
-# ────────────────────────────────────────────────────────────────
-# Database schemas — one per env when var.database_cluster_id is set.
+# Database schemas — one per env when var.attach_database=true.
 #
 # Naming convention: `<service>_<env>` (e.g. `identity_dev`). This matches
 # the workspace's `.kiro/cloud/apps/*.yaml` manifests so the import path
-# is 1:1.
+# is 1:1. Dashes in service names are converted to underscores because
+# Postgres/MySQL identifiers disallow dashes.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_database_schema" "schemas" {
-  # for_each keys resolve at plan time via `var.attach_database`
-  # (a static bool). The previous shape `var.database_cluster_id
-  # != null ? var.environments : {}` derived the key set from a
-  # resource-output value (apply-time-unknown), which broke plan.
-  # Fix landed 2026-08-04 — Wave 5 plan blocker.
   for_each = var.attach_database ? var.environments : {}
 
   cluster_id = var.database_cluster_id
@@ -84,50 +65,82 @@ resource "laravelcloud_database_schema" "schemas" {
 resource "laravelcloud_cache" "caches" {
   for_each = var.attach_cache ? var.environments : {}
 
-  organization_id = var.organization_id
-  name            = "${var.name}-${each.key}"
-  region          = var.region
-  size            = each.value.cache_size
+  name                 = "${var.name}-${each.key}"
+  type                 = var.cache_type
+  region               = var.region
+  size                 = each.value.cache_size
+  auto_upgrade_enabled = var.cache_auto_upgrade_enabled
+  is_public            = var.cache_is_public
+  eviction_policy      = var.cache_eviction_policy
 }
 
 # ────────────────────────────────────────────────────────────────
-# WebSocket app bindings — one per env when var.websocket_cluster_id
-# is set. Binds the env to the shared WS cluster with a per-env max
-# connections cap.
+# WebSocket apps — one per env when var.attach_websocket=true.
+#
+# Cloud API v2 change: ws_apps are now name-scoped resources on the
+# cluster (with their own app_key + app_secret), and environments bind
+# to them via `websocket_application_id`. One ws_app per env keeps the
+# 1:1 semantic parity of pre-v2.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_websocket_app" "ws_apps" {
-  # See attach_database in variables.tf for the plan-time-known-bool
-  # rationale. Same fix (2026-08-04 Wave 5 plan blocker).
   for_each = var.attach_websocket ? var.environments : {}
 
-  cluster_id      = var.websocket_cluster_id
-  environment_id  = laravelcloud_environment.envs[each.key].id
-  max_connections = each.value.websocket_max_connections
+  cluster_id = var.websocket_cluster_id
+  name       = "${var.name}-${each.key}"
 }
 
 # ────────────────────────────────────────────────────────────────
-# Buckets — one per entry in var.buckets, per env. Bucket naming:
-# `<service>-<bucket>-<env>` (e.g. `identity-uploads-prd`).
+# Environments — one resource per entry in var.environments.
+#
+# Note: this resource is declared AFTER the schema/cache/ws_app
+# resources so that terraform's dependency graph resolves them first.
+# The env's `*_id` bindings reference each of those resources. The
+# provider handles the two-step create (POST env → PATCH bindings)
+# transparently.
+# ────────────────────────────────────────────────────────────────
+
+resource "laravelcloud_environment" "envs" {
+  for_each = var.environments
+
+  application_id = laravelcloud_application.this.id
+  name           = each.key
+  branch         = each.value.branch
+  variables      = each.value.variables
+
+  database_schema_id       = var.attach_database ? laravelcloud_database_schema.schemas[each.key].id : null
+  cache_id                 = var.attach_cache ? laravelcloud_cache.caches[each.key].id : null
+  websocket_application_id = var.attach_websocket ? laravelcloud_websocket_app.ws_apps[each.key].id : null
+}
+
+# ────────────────────────────────────────────────────────────────
+# Buckets — one per (env, bucket) pair in the crossjoin.
+#
+# Naming: `<service>-<bucket-name>-<env>` (e.g. `identity-uploads-prd`).
+# Every bucket ships with a root access key named `<name>-root` at
+# read_write permission by default; overrideable per bucket via the
+# `visibility` / `key_permission` fields in the buckets list.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_bucket" "buckets" {
   for_each = { for pair in flatten([
     for env_key, env in var.environments : [
       for b in var.buckets : {
-        key    = "${env_key}-${b.name}"
-        env    = env_key
-        name   = b.name
-        region = coalesce(b.region, var.region)
-        mode   = coalesce(b.mode, "private")
+        key            = "${env_key}-${b.name}"
+        env            = env_key
+        bucket_name    = b.name
+        jurisdiction   = coalesce(b.jurisdiction, var.default_bucket_jurisdiction)
+        visibility     = coalesce(b.visibility, "private")
+        key_permission = coalesce(b.key_permission, "read_write")
       }
     ]
   ]) : pair.key => pair }
 
-  organization_id = var.organization_id
-  name            = "${var.name}-${each.value.name}-${each.value.env}"
-  region          = each.value.region
-  mode            = each.value.mode
+  name           = "${var.name}-${each.value.bucket_name}-${each.value.env}"
+  visibility     = each.value.visibility
+  jurisdiction   = each.value.jurisdiction
+  key_name       = "${var.name}-${each.value.bucket_name}-${each.value.env}-root"
+  key_permission = each.value.key_permission
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -135,15 +148,16 @@ resource "laravelcloud_bucket" "buckets" {
 #
 # var.domains map shape: { <env_slug> = "<hostname>" }. Each pair
 # creates a domain binding on the matching env. Cloudflare-managed
-# by default — matches the workspace's cloudflare-conventions steering.
+# verification by default (matches the workspace's cloudflare
+# conventions steering) — override per invocation via var.domain_defaults.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_domain" "domains" {
   for_each = var.domains
 
-  environment_id     = laravelcloud_environment.envs[each.key].id
-  name               = each.value
-  redirect_from_www  = true
-  cloudflare_managed = true
-  verification       = "real_time"
+  environment_id      = laravelcloud_environment.envs[each.key].id
+  name                = each.value
+  www_redirect        = var.domain_defaults.www_redirect
+  verification_method = var.domain_defaults.verification_method
+  cloudflare_strategy = var.domain_defaults.cloudflare_strategy
 }
