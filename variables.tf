@@ -237,8 +237,8 @@ variable "buckets" {
   DESC
   type = list(object({
     name           = string
-    jurisdiction   = optional(string)              # us / eu / me / ...
-    visibility     = optional(string, "private")   # private / public
+    jurisdiction   = optional(string)               # us / eu / me / ...
+    visibility     = optional(string, "private")    # private / public
     key_permission = optional(string, "read_write") # read_only / read_write
   }))
   default = []
@@ -268,9 +268,9 @@ variable "domain_defaults" {
       cloudflare_strategy : "none" | "dns" | "dns_proxy"
   DESC
   type = object({
-    www_redirect        = optional(string, "www_to_root")       # www_to_root: hits to www.* redirect to naked subdomain
-    verification_method = optional(string, "real_time")         # real_time: verify at request time (vs pre_verification)
-    cloudflare_strategy = optional(string, "dns_proxy")         # dns_proxy: proxy through Cloudflare (orange cloud)
+    www_redirect        = optional(string, "www_to_root") # www_to_root: hits to www.* redirect to naked subdomain
+    verification_method = optional(string, "real_time")   # real_time: verify at request time (vs pre_verification)
+    cloudflare_strategy = optional(string, "dns_proxy")   # dns_proxy: proxy through Cloudflare (orange cloud)
   })
   default = {}
 }
