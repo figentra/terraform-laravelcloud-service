@@ -94,6 +94,9 @@ variable "environments" {
     Note: `websocket_max_connections` and `inherits` fields are deprecated
     no-ops (max_connections is now on the cluster; inherits was removed
     from Cloud API v2).
+
+    v0.4.5 addition: optional `color` (blue/green/orange/purple/red/
+    yellow/cyan/gray). Falls back to var.default_env_colors[<env>].
   DESC
   type = map(object({
     branch                    = optional(string)
@@ -101,8 +104,24 @@ variable "environments" {
     inherits                  = optional(string) # DEPRECATED no-op
     cache_size                = optional(string, "cache-1gb")
     websocket_max_connections = optional(number) # DEPRECATED no-op
+    color                     = optional(string)
   }))
   default = {}
+}
+
+variable "default_env_colors" {
+  description = <<-DESC
+    Default env color palette matching the workspace convention:
+    dev=green (OK), stg=orange (care), prd=red (danger). Preview envs
+    default to purple. Caller overrides individual envs via
+    environments[<env>].color.
+  DESC
+  type        = map(string)
+  default = {
+    dev = "green"
+    stg = "orange"
+    prd = "red"
+  }
 }
 
 # ────────────────────────────────────────────────────────────────

@@ -108,6 +108,10 @@ resource "laravelcloud_environment" "envs" {
   branch         = each.value.branch
   variables      = each.value.variables
 
+  # v0.4.5 — env color per env slug. Default map: dev=green,
+  # stg=orange, prd=red. Caller override wins per env.
+  color = try(each.value.color, null) != null ? each.value.color : lookup(var.default_env_colors, each.key, null)
+
   database_schema_id       = var.attach_database ? laravelcloud_database_schema.schemas[each.key].id : null
   cache_id                 = var.attach_cache ? laravelcloud_cache.caches[each.key].id : null
   websocket_application_id = var.attach_websocket ? laravelcloud_websocket_app.ws_apps[each.key].id : null
