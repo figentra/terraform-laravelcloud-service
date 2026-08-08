@@ -232,11 +232,17 @@ variable "domain_defaults" {
   description = <<-DESC
     Domain-binding defaults applied to every domain in var.domains.
     Consumers override individual fields per env root if needed.
+
+    Valid values per the Cloud SDK's DomainRedirect /
+    DomainVerificationMethod / DomainCloudflareStrategy enums:
+      www_redirect        : "root_to_www" | "www_to_root"
+      verification_method : "pre_verification" | "real_time"
+      cloudflare_strategy : "none" | "dns" | "dns_proxy"
   DESC
   type = object({
-    www_redirect        = optional(string, "redirect_to_apex")   # redirect_to_apex / redirect_from_apex / no_redirect
-    verification_method = optional(string, "cloudflare")         # dns / cloudflare
-    cloudflare_strategy = optional(string, "orange_cloud")       # Cloud-integration strategy
+    www_redirect        = optional(string, "www_to_root")       # www_to_root: hits to www.* redirect to naked subdomain
+    verification_method = optional(string, "real_time")         # real_time: verify at request time (vs pre_verification)
+    cloudflare_strategy = optional(string, "dns_proxy")         # dns_proxy: proxy through Cloudflare (orange cloud)
   })
   default = {}
 }
