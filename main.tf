@@ -91,6 +91,50 @@ resource "laravelcloud_websocket_app" "ws_apps" {
 }
 
 # ────────────────────────────────────────────────────────────────
+# Nightwatch env vars — computed per env from var.nightwatch.
+#
+# On Laravel Cloud, the "Enable Nightwatch" toggle at the app level
+# auto-injects NIGHTWATCH_TOKEN + runs the agent as a background
+# process. This locals block only sets the OVERRIDES consumers
+# typically want per env (enabled flag, sampling rate, redact list,
+# optional log stack).
+# ────────────────────────────────────────────────────────────────
+
+locals {
+  # Default sampling per env — dev cheapest, prd fullest fidelity.
+  nightwatch_default_sampling = {
+    dev = 0.1
+    stg = 0.5
+    prd = 1.0
+  }
+
+  # Per-env Nightwatch env vars, computed once + merged in below.
+  nightwatch_env_vars = {
+    for env_key, env_cfg in var.environments : env_key => merge(
+      {
+        NIGHTWATCH_ENABLED = tostring(
+          contains(coalesce(var.nightwatch.enabled_in, ["stg", "prd"]), env_key)
+        )
+        NIGHTWATCH_SAMPLING_RATE = tostring(
+          coalesce(
+            try(var.nightwatch.sampling_rate_by_env[env_key], null),
+            lookup(local.nightwatch_default_sampling, env_key, 1.0),
+          )
+        )
+        NIGHTWATCH_REDACT_HEADERS = coalesce(
+          var.nightwatch.redact_headers,
+          "cookie,authorization,x-api-key,x-service-identity,x-doppler-token",
+        )
+      },
+      # LOG_STACK only when caller opted in — never override silently.
+      var.nightwatch.log_stack != null ? {
+        LOG_STACK = var.nightwatch.log_stack
+      } : {},
+    )
+  }
+}
+
+# ────────────────────────────────────────────────────────────────
 # Environments — one resource per entry in var.environments.
 #
 # Note: this resource is declared AFTER the schema/cache/ws_app
@@ -98,6 +142,12 @@ resource "laravelcloud_websocket_app" "ws_apps" {
 # The env's `*_id` bindings reference each of those resources. The
 # provider handles the two-step create (POST env → PATCH bindings)
 # transparently.
+#
+# The env's `variables` map is a merge of:
+#   1. Nightwatch env-var defaults from var.nightwatch (computed
+#      above in locals.nightwatch_env_vars).
+#   2. Caller's environments[<env>].variables — WINS on collision so
+#      per-env caller overrides always beat the module's defaults.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_environment" "envs" {
@@ -106,7 +156,7 @@ resource "laravelcloud_environment" "envs" {
   application_id = laravelcloud_application.this.id
   name           = each.key
   branch         = each.value.branch
-  variables      = each.value.variables
+  variables      = merge(local.nightwatch_env_vars[each.key], each.value.variables)
 
   # v0.4.5 — env color per env slug. Default map: dev=green,
   # stg=orange, prd=red. Caller override wins per env.

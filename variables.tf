@@ -271,3 +271,50 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# ────────────────────────────────────────────────────────────────
+# Nightwatch (Laravel APM) integration
+#
+# On Laravel Cloud, Nightwatch's auto-integration provisions
+# NIGHTWATCH_TOKEN + runs the agent as a background process
+# automatically once the "Enable Nightwatch" toggle is set per
+# app (Cloud UI or provider PR — Wave 14). This module ONLY
+# manages the env-var overrides consumers usually want:
+#
+#   - NIGHTWATCH_ENABLED per env (disable in dev, enable in stg/prd)
+#   - NIGHTWATCH_SAMPLING_RATE per env (10% in dev, 100% in prd)
+#   - NIGHTWATCH_REDACT_HEADERS (workspace-uniform default)
+#   - NIGHTWATCH_DEPLOY tracking left to Cloud (auto per
+#     nightwatch.laravel.com/docs/deployments §Automatic Setup —
+#     Cloud sends release ref/name/URL on every deploy).
+#
+# Consumers opt out entirely via nightwatch.enabled_in = [].
+# ────────────────────────────────────────────────────────────────
+
+variable "nightwatch" {
+  description = <<-DESC
+    Nightwatch integration knobs. Applied as env vars on each Cloud
+    environment. Set enabled_in = [] to skip entirely.
+
+    Fields:
+      enabled_in           : env slugs where NIGHTWATCH_ENABLED=true.
+                             Default: stg + prd (dev opt-out for cost).
+      sampling_rate_by_env : NIGHTWATCH_SAMPLING_RATE per env. Default:
+                             dev=0.1, stg=0.5, prd=1.0.
+      redact_headers       : NIGHTWATCH_REDACT_HEADERS comma-separated
+                             list. Default matches OneUptime + Cloud's
+                             own workspace conventions.
+      log_stack            : When set, adds LOG_STACK env var so Laravel
+                             ships to both Cloud Logs + Nightwatch
+                             (per cloud.laravel.com/docs/knowledge-base
+                             /nightwatch-on-cloud). Default: null =
+                             leave LOG_STACK alone.
+  DESC
+  type = object({
+    enabled_in           = optional(list(string), ["stg", "prd"])
+    sampling_rate_by_env = optional(map(number), {})
+    redact_headers       = optional(string, "cookie,authorization,x-api-key,x-service-identity,x-doppler-token")
+    log_stack            = optional(string, null)
+  })
+  default = {}
+}
