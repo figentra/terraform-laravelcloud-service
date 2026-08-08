@@ -37,6 +37,7 @@ resource "laravelcloud_application" "this" {
   region                       = var.region
   source_control_provider_type = var.source_control_provider_type
   repository                   = var.repository
+  root_directory               = var.root_directory
   slack_channel                = var.slack_channel
   cluster_id                   = var.cluster_id
 }

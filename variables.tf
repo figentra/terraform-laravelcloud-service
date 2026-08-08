@@ -69,6 +69,15 @@ variable "repository" {
   type        = string
 }
 
+variable "root_directory" {
+  description = <<-DESC
+    Sub-path within the repo Cloud builds from. Empty / null when
+    building from the repo root. Required for monorepos.
+  DESC
+  type        = string
+  default     = null
+}
+
 variable "slack_channel" {
   description = "Slack channel for deploy notifications."
   type        = string
