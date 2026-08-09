@@ -23,7 +23,7 @@ terraform {
   required_providers {
     laravelcloud = {
       source  = "figentra/laravel-cloud"
-      version = "~> 0.3"
+      version = "~> 0.4"
     }
   }
 }
