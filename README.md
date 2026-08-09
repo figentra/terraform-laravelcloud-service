@@ -1,18 +1,18 @@
 # laravel-cloud-service module
 
-Composes `stackra/laravel-cloud` provider resources into a shape a
-workspace service can consume in one HCL block.
+Composes `figentra/laravel-cloud` provider resources into a shape a
+Laravel Cloud service can consume in one HCL block.
 
 ## Purpose
 
-Every workspace service (identity, commerce, api, ai, ...) uses this
-module once per env root to declare its Cloud footprint — the
+Every Laravel Cloud service (identity, commerce, api, ai, ...) uses
+this module once per env root to declare its Cloud footprint — the
 application, its environments, and per-env database/cache/WS/bucket/
 domain bindings.
 
-Input shape mirrors `.kiro/cloud/apps/<slug>.yaml` so an operator moving
-from the PHP CLI world to Terraform doesn't have to re-learn the service
-contract.
+Input shape mirrors a `<slug>.yaml` per-app manifest so an operator
+moving from the Cloud dashboard / PHP CLI world to Terraform doesn't
+have to re-learn the service contract.
 
 ## Status
 
@@ -24,13 +24,14 @@ the provider ships each resource type.
 
 ```hcl
 module "identity" {
-  source = "../../modules/laravel-cloud-service"
+  source  = "figentra/service/laravelcloud"
+  version = "~> 0.1"
 
   name                         = "identity"
-  organization_id              = local.orgs.figentra
+  organization_id              = local.orgs.default
   region                       = "us-east-1"
   source_control_provider_type = "github"
-  repository                   = "figentra/identity-service"
+  repository                   = "my-org/identity-service"
   slack_channel                = "#deploys-identity"
 
   # Phase 2 inputs (declared but no-op'd today).
@@ -49,7 +50,7 @@ module "identity" {
   ]
 
   domains = {
-    prd = "identity.figentra.com"
+    prd = "identity.example.com"
   }
 
   tags = local.common_tags

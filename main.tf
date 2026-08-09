@@ -1,32 +1,44 @@
-# laravel-cloud-service module — composes the Laravel Cloud provider into a
-# shape a workspace service can consume in one HCL block.
-#
-# One module invocation per service. Every workspace service (identity,
-# commerce, api, ai, ...) uses this module once per env root to declare its
-# Cloud footprint.
-#
-# What this module creates (v0.4.0 provider — Cloud API v2 aligned):
-#   - Application (top-level Cloud unit)
-#   - N environments (dev / stg / prd + preview-*)
-#   - N database schemas (one per env when var.attach_database=true)
-#   - N cache instances (one per env when var.attach_cache=true)
-#   - N WebSocket apps (one per env when var.attach_websocket=true)
-#   - N buckets (from var.buckets × envs)
-#   - Domain bindings from var.domains
-#
-# Cloud API v2 changes vs v0.3:
-#   - organization_id is no longer accepted anywhere — it's derived from
-#     the API token's scope. Kept as a no-op variable for backward compat
-#     with consuming service HCL (deprecated; drop on next major).
-#   - websocket_app decoupled from environment: it's a name-scoped Reverb
-#     app on the cluster, and environments bind to it via
-#     `websocket_application_id`.
-#   - bucket: mode → visibility; region → jurisdiction; key_name +
-#     key_permission required.
-#   - domain: redirect_from_www → www_redirect (enum); verification →
-#     verification_method; cloudflare_managed → cloudflare_strategy (enum).
-#   - environment: variables managed via a separate call (transparent to
-#     terraform authors — the provider issues the second call automatically).
+/**
+ * @file main.tf
+ * @description Composes the Laravel Cloud provider into a shape a
+ *   workspace service can consume in one HCL block. Every workspace
+ *   service (identity, commerce, api, ai, ...) uses this module once
+ *   per env root to declare its Cloud footprint.
+ *
+ *   Provisions (v0.4.x provider — Cloud API v2 aligned):
+ *     - 1× Application (top-level Cloud unit)
+ *     - N× environments (dev / stg / prd + preview-*)
+ *     - N× database schemas (one per env when `attach_database=true`)
+ *     - N× cache instances (one per env when `attach_cache=true`)
+ *     - N× WebSocket apps (one per env when `attach_websocket=true`)
+ *     - N× buckets (from `var.buckets` × envs)
+ *     - N× domain bindings from `var.domains`
+ *
+ *   Nightwatch env vars (NIGHTWATCH_ENABLED / SAMPLING_RATE /
+ *   REDACT_HEADERS / optional LOG_STACK) are computed once per env
+ *   in `locals.nightwatch_env_vars` and merged into each env's
+ *   `variables` map so caller-supplied entries always win on
+ *   collision.
+ *
+ *   Cloud API v2 changes vs v0.3 (documented for callers migrating):
+ *     - `organization_id` is no longer accepted anywhere — it's
+ *       derived from the API token's scope. Kept as a no-op variable
+ *       for backward compat; drop on the next module major bump.
+ *     - `websocket_app` decoupled from environment: it's a
+ *       name-scoped Reverb app on the cluster; environments bind via
+ *       `websocket_application_id`.
+ *     - Bucket: `mode` → `visibility`; `region` → `jurisdiction`;
+ *       `key_name` + `key_permission` required.
+ *     - Domain: `redirect_from_www` → `www_redirect` (enum);
+ *       `verification` → `verification_method`; `cloudflare_managed`
+ *       → `cloudflare_strategy` (enum).
+ *
+ * Cross-refs:
+ *   variables.tf                          service knobs + env map + shared cluster IDs
+ *   outputs.tf                            application_id / per-env resource IDs
+ *   laravel-cloud-static-site/main.tf     sibling module — SPA/static site variant
+ *   doppler-project/main.tf               sibling — where runtime secrets live
+ */
 
 # ────────────────────────────────────────────────────────────────
 # Application — the top-level Cloud unit for this service.
@@ -45,10 +57,10 @@ resource "laravelcloud_application" "this" {
 # ────────────────────────────────────────────────────────────────
 # Database schemas — one per env when var.attach_database=true.
 #
-# Naming convention: `<service>_<env>` (e.g. `identity_dev`). This matches
-# the workspace's `.kiro/cloud/apps/*.yaml` manifests so the import path
-# is 1:1. Dashes in service names are converted to underscores because
-# Postgres/MySQL identifiers disallow dashes.
+# Naming convention: `<service>_<env>` (e.g. `my_service_dev`). This
+# matches the workspace's `.kiro/cloud/apps/*.yaml` manifests so the
+# import path is 1:1. Dashes in service names are converted to
+# underscores because Postgres/MySQL identifiers disallow dashes.
 # ────────────────────────────────────────────────────────────────
 
 resource "laravelcloud_database_schema" "schemas" {
@@ -171,7 +183,7 @@ resource "laravelcloud_environment" "envs" {
 # ────────────────────────────────────────────────────────────────
 # Buckets — one per (env, bucket) pair in the crossjoin.
 #
-# Naming: `<service>-<bucket-name>-<env>` (e.g. `identity-uploads-prd`).
+# Naming: `<service>-<bucket-name>-<env>` (e.g. `my-service-uploads-prd`).
 # Every bucket ships with a root access key named `<name>-root` at
 # read_write permission by default; overrideable per bucket via the
 # `visibility` / `key_permission` fields in the buckets list.
