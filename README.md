@@ -88,3 +88,44 @@ Phase 2: `environment_ids`, `database_schema_ids`, `websocket_app_ids`, `bucket_
 - [Migration plan](../../../.kiro/plans/2026-08-07-terraform-pivot-plan.md)
 - [Laravel Cloud conventions](../../../.kiro/steering/laravel-cloud-conventions.md)
 - [ADR-0080](../../../.docs/adr/0080-terraform-for-cloud-devops.md)
+
+## Cloud auto-created `production` env — workspace playbook
+
+Cloud automatically creates a `production` env on every fresh
+application. Its ID is not returned by any resource this module
+manages, and terraform's `laravelcloud_environment.envs[...]` will
+collide with it if `var.environments` includes a `production` key.
+
+**Workspace-canonical treatment**: rename the auto-created env from
+`production` → `prd` so terraform can adopt it later via `import`
+when the prd env root lands. The rename preserves the resource
+(URLs, secrets, deployments) while freeing the `production` name for
+future use.
+
+Run once per new application (dev workstation, from workspace root):
+
+```bash
+doppler run --scope . --no-check-version -- bash -c '
+API="https://cloud.laravel.com/api"
+APP_ID="<the new laravelcloud_application.this.id>"
+TOK="$LARAVEL_CLOUD_TOKEN"  # or ACADEMORIX for aliased provider
+
+ENV_ID=$(curl -s -H "Authorization: Bearer $TOK" \
+  "$API/applications/$APP_ID/environments" | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); print(next((e[\"id\"] for e in d[\"data\"] if e[\"attributes\"][\"name\"] == \"production\"), \"\"))")
+
+if [ -n "$ENV_ID" ]; then
+  curl -s -X PATCH -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+    -d "{\"name\":\"prd\"}" "$API/environments/$ENV_ID"
+fi
+'
+```
+
+Cloud's constraint: at least one env per app MUST be named "production"
+OR "prd" (the primary deploy target). Deleting the "production" env
+without a rename returns HTTP 422 "may not be deleted".
+
+Codified 2026-08-10 during T16 of the enterprise day-1 completion —
+8 workspace apps renamed to `prd` in one pass.
+
+See also: `.kiro/plans/2026-08-08-enterprise-complete-plan.md` §T16.
