@@ -336,14 +336,15 @@ resource "laravelcloud_environment_network_settings" "envs" {
   firewall_rate_limit_level     = try(each.value.firewall_rate_limit_level, null)
   firewall_under_attack_mode    = try(each.value.firewall_under_attack_mode, null)
 
-  # HSTS nested block — omit entirely (null) when hsts_max_age is 0
-  # or unset, so the header is dropped rather than sent with max-age=0.
-  response_headers_hsts = (
-    try(each.value.hsts_max_age, null) == null
-    || try(each.value.hsts_max_age, 0) == 0
-    ) ? null : {
+  # HSTS nested block — send it ONLY when hsts_max_age is set to a
+  # positive integer. When null or 0, the entire block is omitted so
+  # Cloud drops the Strict-Transport-Security response header rather
+  # than trying to send `max-age=0` (which HTTP semantics interpret as
+  # "expire HSTS", but Cloud rejects the payload for missing
+  # includeSubDomains on the same object).
+  response_headers_hsts = coalesce(try(each.value.hsts_max_age, 0), 0) > 0 ? {
     max_age            = each.value.hsts_max_age
-    include_subdomains = try(each.value.hsts_include_subdomains, null)
-    preload            = try(each.value.hsts_preload, null)
-  }
+    include_subdomains = try(each.value.hsts_include_subdomains, true)
+    preload            = try(each.value.hsts_preload, false)
+  } : null
 }
