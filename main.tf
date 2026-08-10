@@ -267,3 +267,52 @@ resource "laravelcloud_deployment" "this" {
     laravelcloud_domain.domains,
   ]
 }
+
+
+# ────────────────────────────────────────────────────────────────
+# Per-env network hardening — HSTS + rate-limit tier + robots tag
+# + frame + content-type headers via
+# `laravelcloud_environment_network_settings` (provider v0.5.0+).
+#
+# Every env in `var.environments` gets one settings resource unless
+# the caller explicitly disables via `var.network_settings_by_env
+# = null`. Values are computed per env from the merge of the
+# workspace-default tier map and the per-env override map.
+# ────────────────────────────────────────────────────────────────
+
+locals {
+  # Effective network-settings map — merge default with override
+  # per env, dropping envs the caller hasn't declared in
+  # `var.environments`. When `var.network_settings_by_env == null`
+  # the resource is skipped entirely.
+  network_settings_effective = var.network_settings_by_env == null ? {} : {
+    for env_key, _ in var.environments : env_key => merge(
+      lookup(var.default_network_settings_by_env, env_key, {}),
+      lookup(var.network_settings_by_env, env_key, {}),
+    )
+  }
+}
+
+resource "laravelcloud_environment_network_settings" "envs" {
+  for_each = local.network_settings_effective
+
+  environment_id = laravelcloud_environment.envs[each.key].id
+
+  cache_strategy                = try(each.value.cache_strategy, null)
+  response_headers_frame        = try(each.value.response_headers_frame, null)
+  response_headers_content_type = try(each.value.response_headers_content_type, null)
+  response_headers_robots_tag   = try(each.value.response_headers_robots_tag, null)
+  firewall_rate_limit_level     = try(each.value.firewall_rate_limit_level, null)
+  firewall_under_attack_mode    = try(each.value.firewall_under_attack_mode, null)
+
+  # HSTS nested block — omit entirely (null) when hsts_max_age is 0
+  # or unset, so the header is dropped rather than sent with max-age=0.
+  response_headers_hsts = (
+    try(each.value.hsts_max_age, null) == null
+    || try(each.value.hsts_max_age, 0) == 0
+    ) ? null : {
+    max_age            = each.value.hsts_max_age
+    include_subdomains = try(each.value.hsts_include_subdomains, null)
+    preload            = try(each.value.hsts_preload, null)
+  }
+}

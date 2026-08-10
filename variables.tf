@@ -622,3 +622,103 @@ variable "deploy_timeout_seconds" {
   default     = 1800
 }
 
+
+
+# ────────────────────────────────────────────────────────────────
+# Network hardening — per-env HSTS + rate-limit + robots + frame
+# + content-type. Composed onto every env via the sibling
+# `laravelcloud_environment_network_settings` resource (provider
+# v0.5.0+).
+#
+# Design:
+#   - Every env-slug present in `var.environments` gets a
+#     network-settings resource keyed on the same slug.
+#   - Values come from `var.network_settings_by_env[<slug>]` when
+#     present, else fall back to `var.default_network_settings_by_env`.
+#   - Default map codifies workspace policy per ADR-0082 §Rule 3:
+#     dev  = NOINDEX + no HSTS + medium rate limit
+#     stg  = NOINDEX + 1yr HSTS + medium rate limit
+#     prd  = INDEX   + 2yr HSTS + preload + high rate limit
+#   - Set `network_settings_by_env = {}` to skip the resource
+#     entirely (Cloud env-tier defaults win).
+# ────────────────────────────────────────────────────────────────
+
+variable "network_settings_by_env" {
+  description = <<-DESC
+    Per-env overrides on top of `default_network_settings_by_env`.
+    Anything set here wins per field. Fields omitted here fall back
+    to the default map. Set the whole map to `null` to disable the
+    resource entirely; Cloud env-tier defaults apply.
+
+    Fields (every field optional — nulls omit):
+      - cache_strategy               : `default` / `passthrough` / `custom`
+      - response_headers_frame       : `deny` / `sameorigin` / `disabled`
+      - response_headers_content_type: `nosniff` / `disabled`
+      - response_headers_robots_tag  : `all` / `noindex` / `noindex,nofollow` / `none` / `disabled`
+      - hsts_max_age                 : max-age seconds (0 → drop HSTS header)
+      - hsts_include_subdomains      : bool
+      - hsts_preload                 : bool — requires max_age>=31536000 AND include_subdomains
+      - firewall_rate_limit_level    : `disabled` / `low` / `medium` / `high`
+      - firewall_under_attack_mode   : bool — emergency scrubbing
+  DESC
+  type = map(object({
+    cache_strategy                = optional(string)
+    response_headers_frame        = optional(string)
+    response_headers_content_type = optional(string)
+    response_headers_robots_tag   = optional(string)
+    hsts_max_age                  = optional(number)
+    hsts_include_subdomains       = optional(bool)
+    hsts_preload                  = optional(bool)
+    firewall_rate_limit_level     = optional(string)
+    firewall_under_attack_mode    = optional(bool)
+  }))
+  default = null
+}
+
+variable "default_network_settings_by_env" {
+  description = <<-DESC
+    Workspace-canonical network-settings tier map, ADR-0082 §Rule 3.
+    Callers rarely override this — passthrough to `null` disables
+    the network-settings resource entirely.
+  DESC
+  type = map(object({
+    cache_strategy                = optional(string)
+    response_headers_frame        = optional(string)
+    response_headers_content_type = optional(string)
+    response_headers_robots_tag   = optional(string)
+    hsts_max_age                  = optional(number)
+    hsts_include_subdomains       = optional(bool)
+    hsts_preload                  = optional(bool)
+    firewall_rate_limit_level     = optional(string)
+    firewall_under_attack_mode    = optional(bool)
+  }))
+  default = {
+    dev = {
+      response_headers_frame        = "deny"
+      response_headers_content_type = "nosniff"
+      response_headers_robots_tag   = "noindex"
+      # HSTS off in dev — self-signed certs on preview URLs confuse
+      # browsers when HSTS is on.
+      hsts_max_age              = 0
+      firewall_rate_limit_level = "medium"
+    }
+    stg = {
+      response_headers_frame        = "deny"
+      response_headers_content_type = "nosniff"
+      response_headers_robots_tag   = "noindex"
+      hsts_max_age                  = 31536000 # 1 year
+      hsts_include_subdomains       = true
+      hsts_preload                  = false
+      firewall_rate_limit_level     = "medium"
+    }
+    prd = {
+      response_headers_frame        = "deny"
+      response_headers_content_type = "nosniff"
+      response_headers_robots_tag   = "all"
+      hsts_max_age                  = 63072000 # 2 years
+      hsts_include_subdomains       = true
+      hsts_preload                  = true # requires max_age>=1y + include_subdomains
+      firewall_rate_limit_level     = "high"
+    }
+  }
+}
