@@ -116,33 +116,14 @@ output "domain_ids" {
 }
 
 # ────────────────────────────────────────────────────────────────
-# Compute + deployment outputs — added in module v0.6.0.
+# Deployment outputs — added in module v0.6.0.
+#
+# Compute (`app_instance_ids`, `queue_instance_ids`,
+# `horizon_process_ids`) removed 2026-08-10: Cloud auto-creates the
+# app instance at env creation and rejects `type=queue` without
+# bundled `backgroundProcesses`. Deferred to a future
+# `laravelcloud_env_instance_settings` resource + provider v0.6.0.
 # ────────────────────────────────────────────────────────────────
-
-output "app_instance_ids" {
-  description = <<-DESC
-    Map of `env slug → app-type instance ID`. Consumers use these
-    when composing follow-up background_process resources on the
-    HTTP tier (rare — most workers land on the queue instance).
-  DESC
-  value       = { for k, v in laravelcloud_instance.app : k => v.id }
-}
-
-output "queue_instance_ids" {
-  description = <<-DESC
-    Map of `env slug → queue-type instance ID`. Empty when
-    `attach_horizon = false`.
-  DESC
-  value       = { for k, v in laravelcloud_instance.queue : k => v.id }
-}
-
-output "horizon_process_ids" {
-  description = <<-DESC
-    Map of `env slug → horizon background_process ID`. Empty when
-    `attach_horizon = false`.
-  DESC
-  value       = { for k, v in laravelcloud_background_process.horizon : k => v.id }
-}
 
 output "deployment_ids" {
   description = <<-DESC
