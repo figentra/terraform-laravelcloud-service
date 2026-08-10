@@ -322,10 +322,15 @@ variable "buckets" {
 variable "default_bucket_jurisdiction" {
   description = <<-DESC
     Default jurisdiction (data-residency zone) for buckets that
-    don't specify one. Example: `us`, `eu`, `me`.
+    don't specify one. Empirically verified 2026-08-10 on
+    `POST /api/buckets`: `default` is the ONLY accepted value —
+    Cloud's R2 backend auto-places into the closest region. Every
+    other value (`us`, `eu`, `me`, `apac`, `africa`, `oceania`,
+    `us-east`, `us-west`, `eu-central`, `auto`) returns HTTP 422
+    'The selected jurisdiction is invalid.'
   DESC
   type        = string
-  default     = "us"
+  default     = "default"
 }
 
 variable "domains" {
