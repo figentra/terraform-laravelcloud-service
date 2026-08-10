@@ -281,15 +281,25 @@ resource "laravelcloud_deployment" "this" {
 # ────────────────────────────────────────────────────────────────
 
 locals {
-  # Effective network-settings map — merge default with override
-  # per env, dropping envs the caller hasn't declared in
-  # `var.environments`. When `var.network_settings_by_env == null`
-  # the resource is skipped entirely.
-  network_settings_effective = var.network_settings_by_env == null ? {} : {
+  # Effective network-settings map — merge default tier map with
+  # per-env override, keyed on the envs the caller declared in
+  # `var.environments`. Default `{}` on `var.network_settings_by_env`
+  # means "no overrides" — workspace defaults still apply. The
+  # resource is only skipped when the DEFAULT map is empty AND the
+  # override map is empty (extremely rare — reserved for tests +
+  # for callers that pass network_settings_by_env = null OR override
+  # var.default_network_settings_by_env to {}).
+  network_settings_effective = length(var.default_network_settings_by_env) == 0 ? {} : {
     for env_key, _ in var.environments : env_key => merge(
       lookup(var.default_network_settings_by_env, env_key, {}),
       lookup(var.network_settings_by_env, env_key, {}),
     )
+    # Only include envs whose merged map is non-empty (skip envs the
+    # tier map doesn't cover — e.g. preview-prXYZ).
+    if length(merge(
+      lookup(var.default_network_settings_by_env, env_key, {}),
+      lookup(var.network_settings_by_env, env_key, {}),
+    )) > 0
   }
 }
 

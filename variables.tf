@@ -672,7 +672,7 @@ variable "network_settings_by_env" {
     firewall_rate_limit_level     = optional(string)
     firewall_under_attack_mode    = optional(bool)
   }))
-  default = null
+  default = {}
 }
 
 variable "default_network_settings_by_env" {
