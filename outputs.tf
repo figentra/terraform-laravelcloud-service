@@ -114,3 +114,51 @@ output "domain_ids" {
   DESC
   value       = { for k, v in laravelcloud_domain.domains : k => v.id }
 }
+
+# ────────────────────────────────────────────────────────────────
+# Compute + deployment outputs — added in module v0.6.0.
+# ────────────────────────────────────────────────────────────────
+
+output "app_instance_ids" {
+  description = <<-DESC
+    Map of `env slug → app-type instance ID`. Consumers use these
+    when composing follow-up background_process resources on the
+    HTTP tier (rare — most workers land on the queue instance).
+  DESC
+  value       = { for k, v in laravelcloud_instance.app : k => v.id }
+}
+
+output "queue_instance_ids" {
+  description = <<-DESC
+    Map of `env slug → queue-type instance ID`. Empty when
+    `attach_horizon = false`.
+  DESC
+  value       = { for k, v in laravelcloud_instance.queue : k => v.id }
+}
+
+output "horizon_process_ids" {
+  description = <<-DESC
+    Map of `env slug → horizon background_process ID`. Empty when
+    `attach_horizon = false`.
+  DESC
+  value       = { for k, v in laravelcloud_background_process.horizon : k => v.id }
+}
+
+output "deployment_ids" {
+  description = <<-DESC
+    Map of `env slug → deployment ID`. Empty when
+    `attach_deployment = false`. Consumers reference these when
+    tracing a specific rollout through Cloud's audit trail.
+  DESC
+  value       = { for k, v in laravelcloud_deployment.this : k => v.id }
+}
+
+output "deployment_statuses" {
+  description = <<-DESC
+    Map of `env slug → terminal deployment status`. Useful in CI
+    for asserting every env deployed successfully before firing a
+    smoke-test suite.
+  DESC
+  value       = { for k, v in laravelcloud_deployment.this : k => v.status }
+}
+

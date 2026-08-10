@@ -228,3 +228,118 @@ resource "laravelcloud_domain" "domains" {
   verification_method = var.domain_defaults.verification_method
   cloudflare_strategy = var.domain_defaults.cloudflare_strategy
 }
+
+# ────────────────────────────────────────────────────────────────
+# App instance — one per env. Added in module v0.6.0 (composes the
+# `laravelcloud_instance` resource shipped in provider v0.5.0).
+#
+# Sizing + autoscale + Octane + hibernation are ALL authored here.
+# `uses_scheduler = var.attach_scheduler` gates whether Cloud runs
+# `php artisan schedule:work` on the same instance (most services
+# want this = true).
+#
+# The instance depends on the environment being provisioned first
+# (implicit via the `environment_id` reference).
+# ────────────────────────────────────────────────────────────────
+
+resource "laravelcloud_instance" "app" {
+  for_each = var.environments
+
+  environment_id = laravelcloud_environment.envs[each.key].id
+  name           = "${var.name}-${each.key}-app"
+  type           = "app"
+  size           = var.instance_size
+
+  scaling_type = coalesce(var.instance_scaling.type, "none")
+  min_replicas = coalesce(var.instance_scaling.min_replicas, 1)
+  max_replicas = coalesce(var.instance_scaling.max_replicas, 1)
+
+  scaling_cpu_threshold_percentage    = var.instance_scaling.cpu_threshold
+  scaling_memory_threshold_percentage = var.instance_scaling.memory_threshold
+
+  uses_scheduler   = var.attach_scheduler
+  uses_octane      = var.uses_octane
+  uses_inertia_ssr = var.uses_inertia_ssr
+  uses_sleep_mode  = var.uses_sleep_mode
+  sleep_timeout    = var.sleep_timeout
+}
+
+# ────────────────────────────────────────────────────────────────
+# Queue instance — one per env when var.attach_horizon=true.
+#
+# Sized independently via `var.horizon_instance_size` since queue
+# workers are typically I/O-bound + can run on smaller compute
+# than the HTTP tier.
+# ────────────────────────────────────────────────────────────────
+
+resource "laravelcloud_instance" "queue" {
+  for_each = var.attach_horizon ? var.environments : {}
+
+  environment_id = laravelcloud_environment.envs[each.key].id
+  name           = "${var.name}-${each.key}-queue"
+  type           = "queue"
+  size           = var.horizon_instance_size
+
+  scaling_type = "none"
+  min_replicas = 1
+  max_replicas = 1
+
+  uses_scheduler = false
+}
+
+# ────────────────────────────────────────────────────────────────
+# Horizon background process — one per env when attach_horizon=true.
+#
+# Bound to the queue-type instance above. Configuration flows from
+# `var.horizon_config` into the SDK's BackgroundProcessConfig
+# object; every field maps to a `php artisan queue:work` flag.
+# ────────────────────────────────────────────────────────────────
+
+resource "laravelcloud_background_process" "horizon" {
+  for_each = var.attach_horizon ? var.environments : {}
+
+  instance_id = laravelcloud_instance.queue[each.key].id
+  type        = "worker"
+  processes   = var.horizon_processes
+
+  config = {
+    connection = var.horizon_config.connection
+    queue      = var.horizon_config.queue
+    tries      = var.horizon_config.tries
+    backoff    = var.horizon_config.backoff
+    sleep      = var.horizon_config.sleep
+    rest       = var.horizon_config.rest
+    timeout    = var.horizon_config.timeout
+    force      = var.horizon_config.force
+  }
+}
+
+# ────────────────────────────────────────────────────────────────
+# Deployment — one per env when var.attach_deployment=true.
+#
+# Fires on initial Create + on every `redeploy_trigger` change. The
+# `depends_on` block forces Terraform to serialize the deploy AFTER
+# the app instance has provisioned + its size/toggles are in effect
+# — otherwise Cloud may build against stale settings.
+#
+# `wait_for_completion=true` blocks apply until Cloud reports a
+# terminal status; `timeout_seconds=1800` gives 30-min headroom for
+# cold-cache builds on large Laravel apps.
+# ────────────────────────────────────────────────────────────────
+
+resource "laravelcloud_deployment" "this" {
+  for_each = var.attach_deployment ? var.environments : {}
+
+  environment_id      = laravelcloud_environment.envs[each.key].id
+  redeploy_trigger    = var.redeploy_trigger
+  wait_for_completion = var.deploy_wait_for_completion
+  timeout_seconds     = var.deploy_timeout_seconds
+
+  depends_on = [
+    laravelcloud_instance.app,
+    laravelcloud_instance.queue,
+    laravelcloud_background_process.horizon,
+    laravelcloud_bucket.buckets,
+    laravelcloud_domain.domains,
+  ]
+}

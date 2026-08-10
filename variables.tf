@@ -415,10 +415,205 @@ variable "nightwatch" {
                              Default: null = leave `LOG_STACK` alone.
   DESC
   type = object({
-    enabled_in           = optional(list(string), ["stg", "prd"])
+    enabled_in           = optional(list(string), ["dev", "stg", "prd"])
     sampling_rate_by_env = optional(map(number), {})
     redact_headers       = optional(string, "cookie,authorization,x-api-key,x-service-identity,x-doppler-token")
     log_stack            = optional(string, null)
   })
   default = {}
 }
+
+# ────────────────────────────────────────────────────────────────
+# Compute — instance sizing + autoscale + Octane + hibernation
+#
+# Added in module v0.6.0 alongside the workspace's laravel-cloud
+# provider v0.5.0 shipping `laravelcloud_instance`. Every env gets
+# ONE app-type instance sized per `var.instance_size` + optionally
+# ONE queue-type instance for Horizon workers.
+# ────────────────────────────────────────────────────────────────
+
+variable "instance_size" {
+  description = <<-DESC
+    Cloud size slug for the app instance. Common values:
+    - `flex.g-1vcpu-512mb`  → smallest, dev-scale
+    - `flex.g-2vcpu-1gb`    → mid-tier
+    - `flex.g-2vcpu-2gb`    → mid-tier, larger memory
+    - `pro.g-2vcpu-4gb`     → prd-scale, sustained load
+    - `pro.g-4vcpu-8gb`     → prd-scale, memory-heavy
+
+    Cloud performs a rolling replace on change.
+  DESC
+  type        = string
+  default     = "flex.g-1vcpu-512mb"
+}
+
+variable "instance_scaling" {
+  description = <<-DESC
+    Autoscale + replica behavior for the app instance.
+
+    Fields:
+      type              : `none` | `custom` | `auto`
+        - `none`   → run exactly `min_replicas`. Cheapest.
+        - `custom` → operator manually adjusts replicas between
+                     min/max (typically via Cloud dashboard).
+        - `auto`   → Cloud drives replicas from CPU/memory thresholds.
+      min_replicas      : minimum replica count
+      max_replicas      : maximum replica count (must be >= min)
+      cpu_threshold     : autoscale-up CPU % (only when type=auto)
+      memory_threshold  : autoscale-up memory % (only when type=auto)
+  DESC
+  type = object({
+    type             = optional(string, "none")
+    min_replicas     = optional(number, 1)
+    max_replicas     = optional(number, 1)
+    cpu_threshold    = optional(number)
+    memory_threshold = optional(number)
+  })
+  default = {}
+}
+
+variable "uses_octane" {
+  description = <<-DESC
+    Run the app under Laravel Octane (Swoole/Roadrunner). Cloud
+    provisions the worker pool + reuses PHP processes across
+    requests. Recommended `true` for every Laravel service the
+    workspace ships.
+  DESC
+  type        = bool
+  default     = true
+}
+
+variable "uses_inertia_ssr" {
+  description = <<-DESC
+    Provision the Inertia SSR Node worker alongside PHP. Only
+    meaningful for apps that server-render Inertia components
+    (rare for headless backends).
+  DESC
+  type        = bool
+  default     = false
+}
+
+variable "uses_sleep_mode" {
+  description = <<-DESC
+    Hibernate the instance when idle (Cloud scale-to-zero).
+    Requires `instance_scaling.type = "none"` and
+    `instance_scaling.min_replicas = 1`. Set true for dev envs to
+    save cost; leave false for stg/prd.
+  DESC
+  type        = bool
+  default     = false
+}
+
+variable "sleep_timeout" {
+  description = <<-DESC
+    Seconds of idle before hibernation kicks in. Only meaningful
+    when `uses_sleep_mode = true`. Null = Cloud default (~5min).
+  DESC
+  type        = number
+  default     = null
+}
+
+variable "attach_scheduler" {
+  description = <<-DESC
+    When true, sets `uses_scheduler = true` on the app instance so
+    Cloud runs `php artisan schedule:work` alongside HTTP. Enable
+    for every Laravel service that carries scheduled jobs (most).
+  DESC
+  type        = bool
+  default     = true
+}
+
+# ────────────────────────────────────────────────────────────────
+# Horizon — queue workers on a dedicated queue-type instance
+# ────────────────────────────────────────────────────────────────
+
+variable "attach_horizon" {
+  description = <<-DESC
+    When true, provision a per-env queue-type instance + a
+    Horizon-managed background process on it. Enable for every
+    service that dispatches queued jobs.
+  DESC
+  type        = bool
+  default     = false
+}
+
+variable "horizon_instance_size" {
+  description = <<-DESC
+    Cloud size for the queue-type instance. Typically smaller than
+    the app instance since queue workers are I/O-bound. Common:
+    `flex.g-1vcpu-512mb` (dev), `flex.g-2vcpu-1gb` (prd).
+  DESC
+  type        = string
+  default     = "flex.g-1vcpu-512mb"
+}
+
+variable "horizon_processes" {
+  description = "Number of concurrent queue-worker processes."
+  type        = number
+  default     = 1
+}
+
+variable "horizon_config" {
+  description = <<-DESC
+    Queue-worker tuning — every field matches a `php artisan
+    queue:work` flag. Null fields fall through to Cloud's defaults.
+    See the provider's `laravelcloud_background_process` docs.
+  DESC
+  type = object({
+    connection = optional(string)
+    queue      = optional(string)
+    tries      = optional(number, 3)
+    backoff    = optional(number, 5)
+    sleep      = optional(number, 3)
+    rest       = optional(number, 0)
+    timeout    = optional(number, 60)
+    force      = optional(bool, false)
+  })
+  default = {}
+}
+
+# ────────────────────────────────────────────────────────────────
+# Deployment — fire an initial + subsequent deploys
+# ────────────────────────────────────────────────────────────────
+
+variable "attach_deployment" {
+  description = <<-DESC
+    When true, terraform fires a `laravelcloud_deployment` per env
+    on Create + on every `redeploy_trigger` change. Enable for
+    every service — Cloud doesn't auto-deploy on env-create, so
+    without this the fresh env sits with no build.
+  DESC
+  type        = bool
+  default     = true
+}
+
+variable "redeploy_trigger" {
+  description = <<-DESC
+    Arbitrary string forcing a fresh deploy when it changes.
+    Typical use: `terraform apply -var="redeploy_trigger=$(date +%s)"`.
+    Unset = deploy only fires on initial Create.
+  DESC
+  type        = string
+  default     = null
+}
+
+variable "deploy_wait_for_completion" {
+  description = <<-DESC
+    When true, `terraform apply` blocks until every deploy reaches
+    a terminal status (succeeded / failed). When false, apply
+    returns as soon as Cloud accepts the deploy request.
+  DESC
+  type        = bool
+  default     = true
+}
+
+variable "deploy_timeout_seconds" {
+  description = <<-DESC
+    Max seconds terraform waits for a deploy to reach terminal
+    status. Cold cache-populated builds on large Laravel apps can
+    take 15-25 min; default 1800s (30 min) gives margin.
+  DESC
+  type        = number
+  default     = 1800
+}
+
