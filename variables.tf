@@ -692,33 +692,41 @@ variable "default_network_settings_by_env" {
     firewall_rate_limit_level     = optional(string)
     firewall_under_attack_mode    = optional(bool)
   }))
+  # Values below match Cloud SDK enums verbatim (empirical 2026-08-10
+  # via .ref/laravel-cloud-sdk-main/src/Enums/):
+  #   ResponseHeadersFrame       : deny / sameorigin / all
+  #   ResponseHeadersContentType : nosniff / none
+  #   ResponseHeadersRobotsTag   : "index, follow" / "noindex, nofollow"
+  #   FirewallRateLimitLevel     : challenge / throttle / ban
+  #   CacheStrategy              : default / bypass
+  # Every non-enum value returns HTTP 422 on PATCH /environments/:id.
   default = {
     dev = {
       response_headers_frame        = "deny"
       response_headers_content_type = "nosniff"
-      response_headers_robots_tag   = "noindex"
+      response_headers_robots_tag   = "noindex, nofollow"
       # HSTS off in dev — self-signed certs on preview URLs confuse
       # browsers when HSTS is on.
       hsts_max_age              = 0
-      firewall_rate_limit_level = "medium"
+      firewall_rate_limit_level = "throttle"
     }
     stg = {
       response_headers_frame        = "deny"
       response_headers_content_type = "nosniff"
-      response_headers_robots_tag   = "noindex"
+      response_headers_robots_tag   = "noindex, nofollow"
       hsts_max_age                  = 31536000 # 1 year
       hsts_include_subdomains       = true
       hsts_preload                  = false
-      firewall_rate_limit_level     = "medium"
+      firewall_rate_limit_level     = "throttle"
     }
     prd = {
       response_headers_frame        = "deny"
       response_headers_content_type = "nosniff"
-      response_headers_robots_tag   = "all"
+      response_headers_robots_tag   = "index, follow"
       hsts_max_age                  = 63072000 # 2 years
       hsts_include_subdomains       = true
       hsts_preload                  = true # requires max_age>=1y + include_subdomains
-      firewall_rate_limit_level     = "high"
+      firewall_rate_limit_level     = "ban"
     }
   }
 }
