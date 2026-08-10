@@ -281,25 +281,46 @@ resource "laravelcloud_deployment" "this" {
 # ────────────────────────────────────────────────────────────────
 
 locals {
-  # Effective network-settings map — merge default tier map with
-  # per-env override, keyed on the envs the caller declared in
-  # `var.environments`. Default `{}` on `var.network_settings_by_env`
-  # means "no overrides" — workspace defaults still apply. The
-  # resource is only skipped when the DEFAULT map is empty AND the
-  # override map is empty (extremely rare — reserved for tests +
-  # for callers that pass network_settings_by_env = null OR override
-  # var.default_network_settings_by_env to {}).
-  network_settings_effective = length(var.default_network_settings_by_env) == 0 ? {} : {
+  # Effective network-settings map — one entry per env declared in
+  # `var.environments` that appears in the workspace tier map. When
+  # both the default and override maps agree on a key, the override
+  # wins per field.
+  #
+  # HCL's `lookup(map_of_object, key, {})` fails type-check when the
+  # default value shape doesn't match the map element shape — so
+  # `try(...)` is used instead. try() falls back to the second arg
+  # when the first raises (missing key on a map of objects).
+  network_settings_effective = {
     for env_key, _ in var.environments : env_key => merge(
-      lookup(var.default_network_settings_by_env, env_key, {}),
-      lookup(var.network_settings_by_env, env_key, {}),
+      try(var.default_network_settings_by_env[env_key], null) == null ? {} : {
+        cache_strategy                = try(var.default_network_settings_by_env[env_key].cache_strategy, null)
+        response_headers_frame        = try(var.default_network_settings_by_env[env_key].response_headers_frame, null)
+        response_headers_content_type = try(var.default_network_settings_by_env[env_key].response_headers_content_type, null)
+        response_headers_robots_tag   = try(var.default_network_settings_by_env[env_key].response_headers_robots_tag, null)
+        hsts_max_age                  = try(var.default_network_settings_by_env[env_key].hsts_max_age, null)
+        hsts_include_subdomains       = try(var.default_network_settings_by_env[env_key].hsts_include_subdomains, null)
+        hsts_preload                  = try(var.default_network_settings_by_env[env_key].hsts_preload, null)
+        firewall_rate_limit_level     = try(var.default_network_settings_by_env[env_key].firewall_rate_limit_level, null)
+        firewall_under_attack_mode    = try(var.default_network_settings_by_env[env_key].firewall_under_attack_mode, null)
+      },
+      try(var.network_settings_by_env[env_key], null) == null ? {} : {
+        for k, v in {
+          cache_strategy                = try(var.network_settings_by_env[env_key].cache_strategy, null)
+          response_headers_frame        = try(var.network_settings_by_env[env_key].response_headers_frame, null)
+          response_headers_content_type = try(var.network_settings_by_env[env_key].response_headers_content_type, null)
+          response_headers_robots_tag   = try(var.network_settings_by_env[env_key].response_headers_robots_tag, null)
+          hsts_max_age                  = try(var.network_settings_by_env[env_key].hsts_max_age, null)
+          hsts_include_subdomains       = try(var.network_settings_by_env[env_key].hsts_include_subdomains, null)
+          hsts_preload                  = try(var.network_settings_by_env[env_key].hsts_preload, null)
+          firewall_rate_limit_level     = try(var.network_settings_by_env[env_key].firewall_rate_limit_level, null)
+          firewall_under_attack_mode    = try(var.network_settings_by_env[env_key].firewall_under_attack_mode, null)
+        } : k => v if v != null
+      },
     )
-    # Only include envs whose merged map is non-empty (skip envs the
-    # tier map doesn't cover — e.g. preview-prXYZ).
-    if length(merge(
-      lookup(var.default_network_settings_by_env, env_key, {}),
-      lookup(var.network_settings_by_env, env_key, {}),
-    )) > 0
+    # Skip envs the tier map doesn't cover — the merged map has no
+    # keys other than the null-collapse. Presence of the env in
+    # var.default_network_settings_by_env is the enable signal.
+    if contains(keys(var.default_network_settings_by_env), env_key)
   }
 }
 
