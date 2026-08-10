@@ -707,8 +707,13 @@ variable "default_network_settings_by_env" {
       response_headers_robots_tag   = "noindex, nofollow"
       # HSTS off in dev — self-signed certs on preview URLs confuse
       # browsers when HSTS is on.
-      hsts_max_age              = 0
-      firewall_rate_limit_level = "throttle"
+      hsts_max_age = 0
+      # firewall_rate_limit_level intentionally omitted — Cloud API
+      # empirically stores it as null even when a valid SDK enum value
+      # is PATCHed (2026-08-10 probe). Cloud's rate-limit UI expects
+      # per_minute + 4xx/429 sub-fields to activate; without them the
+      # top-level level is discarded. Manage rate limits via the Cloud
+      # dashboard until the provider grows the full nested payload.
     }
     stg = {
       response_headers_frame        = "deny"
@@ -717,7 +722,6 @@ variable "default_network_settings_by_env" {
       hsts_max_age                  = 31536000 # 1 year
       hsts_include_subdomains       = true
       hsts_preload                  = false
-      firewall_rate_limit_level     = "throttle"
     }
     prd = {
       response_headers_frame        = "deny"
@@ -726,7 +730,6 @@ variable "default_network_settings_by_env" {
       hsts_max_age                  = 63072000 # 2 years
       hsts_include_subdomains       = true
       hsts_preload                  = true # requires max_age>=1y + include_subdomains
-      firewall_rate_limit_level     = "ban"
     }
   }
 }
