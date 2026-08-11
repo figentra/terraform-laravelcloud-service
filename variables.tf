@@ -199,10 +199,7 @@ variable "default_build_command" {
     prebuild caching, custom composer flags).
   DESC
   type        = string
-  default     = <<-EOT
-    php -d memory_limit=-1 /usr/local/bin/composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
-    php -d memory_limit=-1 artisan package:discover --ansi
-  EOT
+  default     = "COMPOSER_MEMORY_LIMIT=-1 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts && php -d memory_limit=-1 artisan package:discover --ansi"
 }
 
 variable "default_deploy_command" {
@@ -229,10 +226,7 @@ variable "default_deploy_command" {
     Horizon restart signal, artisan storage:link).
   DESC
   type        = string
-  default     = <<-EOT
-    php -d memory_limit=-1 artisan migrate --force || echo "[deploy] migrate returned non-zero — continuing so service boots"
-    php -d memory_limit=-1 artisan db:seed --force || echo "[deploy] db:seed returned non-zero — continuing"
-  EOT
+  default     = "php -d memory_limit=-1 artisan migrate --force || echo '[deploy] migrate returned non-zero — continuing so service boots'; php -d memory_limit=-1 artisan db:seed --force || echo '[deploy] db:seed returned non-zero — continuing'"
 }
 
 variable "default_php_major_version" {
