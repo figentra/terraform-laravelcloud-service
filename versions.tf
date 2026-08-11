@@ -22,8 +22,12 @@ terraform {
 
   required_providers {
     laravelcloud = {
-      source  = "figentra/laravel-cloud"
-      version = "~> 0.4"
+      source = "figentra/laravel-cloud"
+      # v0.7.0 required for writable `php_major_version` attribute on
+      # `laravelcloud_environment`. Pre-v0.7.0 providers reject the
+      # attribute plan-time; the module's `laravelcloud_environment.envs`
+      # resource block sets it unconditionally.
+      version = "~> 0.7"
     }
   }
 }

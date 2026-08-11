@@ -160,8 +160,64 @@ variable "environments" {
     cache_size                = optional(string, "cache-1gb")
     websocket_max_connections = optional(number) # DEPRECATED no-op
     color                     = optional(string)
+    # PHP major version pin — added in module v0.3.6 alongside
+    # figentra/laravel-cloud provider v0.7.0's writable
+    # `php_major_version` attribute. Falls back to
+    # `var.default_php_major_version_by_env[<env>]` when null,
+    # then `var.default_php_major_version` when the env isn't in
+    # that map. Cloud defaults to `"8.5"` when the whole chain is
+    # null. Valid: `8.2` / `8.3` / `8.4` / `8.5`.
+    php_major_version = optional(string)
   }))
   default = {}
+}
+
+variable "default_php_major_version" {
+  description = <<-DESC
+    Workspace-wide default PHP major version applied to every env
+    unless the caller overrides per env via `environments[<env>].php_major_version`
+    OR `var.default_php_major_version_by_env[<env>]`. Added in
+    module v0.3.6.
+
+    Cloud defaults to `"8.5"` when the value chain is entirely null.
+    The workspace pins `"8.4"` today because
+    `phpoffice/phpspreadsheet 1.30.6` (a transitive of
+    `maatwebsite/excel` in `stackra/transfer`) requires
+    `php >=7.4.0 <8.5.0` — Cloud's 8.5.9 breaks composer install
+    for every service that pulls it.
+
+    Once phpspreadsheet ships a php-8.5-compatible release, callers
+    can drop this pin OR bump to `"8.5"` in one workspace apply.
+  DESC
+  type        = string
+  default     = "8.4"
+
+  validation {
+    condition     = contains(["8.2", "8.3", "8.4", "8.5"], var.default_php_major_version)
+    error_message = "default_php_major_version must be one of: 8.2, 8.3, 8.4, 8.5."
+  }
+}
+
+variable "default_php_major_version_by_env" {
+  description = <<-DESC
+    Optional per-env overrides of `var.default_php_major_version`.
+    Example: pin dev to 8.5 (bleeding edge) while stg + prd stay on
+    8.4. Individual entries in `var.environments[<env>].php_major_version`
+    still win over this map.
+
+    Empty by default — every env falls back to
+    `var.default_php_major_version`.
+  DESC
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for v in values(var.default_php_major_version_by_env) :
+      contains(["8.2", "8.3", "8.4", "8.5"], v)
+    ])
+    error_message = "Every value in default_php_major_version_by_env must be one of: 8.2, 8.3, 8.4, 8.5."
+  }
 }
 
 variable "default_env_colors" {

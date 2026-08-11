@@ -173,7 +173,30 @@ resource "laravelcloud_environment" "envs" {
 
   # v0.4.5 — env color per env slug. Default map: dev=green,
   # stg=orange, prd=red. Caller override wins per env.
+  #
+  # KNOWN LIMITATION (documented in provider v0.6.0 schema): Cloud
+  # accepts `color` on PATCH but silently drops it — the dashboard
+  # picker uses a separate undocumented endpoint. Every apply is
+  # best-effort; visible drift is expected until Cloud exposes the
+  # read side.
   color = try(each.value.color, null) != null ? each.value.color : lookup(var.default_env_colors, each.key, null)
+
+  # v0.3.6 — PHP major version pin per env. Priority:
+  #   1. environments[<env>].php_major_version — per-env override
+  #   2. default_php_major_version_by_env[<env>] — module map
+  #   3. default_php_major_version — workspace default
+  # Cloud defaults to `"8.5"` when all three are null.
+  #
+  # Cloud's write field is `php_version` with a mandatory `:1`
+  # suffix (e.g. `"8.4:1"`) — the provider encodes it internally.
+  # Consumers only ever see the plain `"8.4"` shape. See
+  # `figentra/laravel-cloud` v0.7.0's PHP-VERSION CONTRACT
+  # ASYMMETRY docs on `internal/api/environments.go`.
+  php_major_version = coalesce(
+    try(each.value.php_major_version, null),
+    lookup(var.default_php_major_version_by_env, each.key, null),
+    var.default_php_major_version,
+  )
 
   database_schema_id       = var.attach_database ? laravelcloud_database_schema.schemas[each.key].id : null
   cache_id                 = var.attach_cache ? laravelcloud_cache.caches[each.key].id : null
