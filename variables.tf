@@ -199,7 +199,7 @@ variable "default_build_command" {
     prebuild caching, custom composer flags).
   DESC
   type        = string
-  default     = "COMPOSER_MEMORY_LIMIT=-1 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts && php -d memory_limit=-1 artisan package:discover --ansi"
+  default     = "COMPOSER_MEMORY_LIMIT=-1 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader"
 }
 
 variable "default_deploy_command" {
