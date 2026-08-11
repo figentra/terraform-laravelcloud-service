@@ -168,8 +168,69 @@ variable "environments" {
     # that map. Cloud defaults to `"8.5"` when the whole chain is
     # null. Valid: `8.2` / `8.3` / `8.4` / `8.5`.
     php_major_version = optional(string)
+    # Build command run at deploy time (v0.3.7). Falls back to
+    # `var.default_build_command`. Set per env when a service needs
+    # bespoke build steps.
+    build_command = optional(string)
+    # Deploy command run after build (v0.3.7). Falls back to
+    # `var.default_deploy_command` (which includes migrate + seed).
+    # Set per env when a service needs additional post-migrate
+    # steps (cache warm-up, storage:link, ...).
+    deploy_command = optional(string)
   }))
   default = {}
+}
+
+variable "default_build_command" {
+  description = <<-DESC
+    Workspace-wide default build command run at deploy time. Added in
+    module v0.3.7. Cloud auto-populates this at env creation with its
+    own default (composer install + commented npm hints); this
+    variable REPLACES it with the workspace-canonical shape:
+    composer install optimised for prod + optional npm build for
+    apps that ship a JS bundle.
+
+    Callers override per-env via `environments[<env>].build_command`
+    when a service needs bespoke build steps (e.g. asset compilation,
+    prebuild caching, custom composer flags).
+  DESC
+  type        = string
+  default     = <<-EOT
+    composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+  EOT
+}
+
+variable "default_deploy_command" {
+  description = <<-DESC
+    Workspace-wide default deploy command run AFTER build at deploy
+    time. Added in module v0.3.7. Cloud auto-populates this at env
+    creation with a commented `# php artisan migrate --force` line —
+    which does nothing. This variable REPLACES it with an uncommented
+    migrate + seeder chain so every deploy:
+
+      1. Runs pending migrations (safe idempotent — already-applied
+         migrations skip). Fixes the "500 on first request because
+         users table doesn't exist" class of failure.
+
+      2. Runs seeders (safe idempotent — every workspace seeder
+         wraps `updateOrCreate` per steering rule
+         enum-db-seed-dual-source §Rule 6). Bootstraps every
+         framework catalogue (business_types, roles, permissions,
+         plans, ...) on every deploy so newly-added seed rows land
+         without an operator step.
+
+      3. `--force` on both to bypass the interactive prompt (Cloud
+         runs non-interactively).
+
+    Callers override per-env via `environments[<env>].deploy_command`
+    when a service needs additional steps (e.g. cache warm-up,
+    Horizon restart signal, artisan storage:link).
+  DESC
+  type        = string
+  default     = <<-EOT
+    php artisan migrate --force
+    php artisan db:seed --force
+  EOT
 }
 
 variable "default_php_major_version" {

@@ -198,6 +198,17 @@ resource "laravelcloud_environment" "envs" {
     var.default_php_major_version,
   )
 
+  # v0.3.7 — build + deploy command overrides per env. Cloud
+  # auto-populates these at env creation with generic defaults
+  # (composer install + a COMMENTED `# php artisan migrate --force`
+  # that does nothing). Setting them explicitly REPLACES the Cloud
+  # defaults. The workspace-canonical default_deploy_command runs
+  # `migrate --force` + `db:seed --force` so every deploy applies
+  # pending migrations and reseeds idempotent catalogues. See
+  # variables.tf for the priority chain rationale.
+  build_command  = coalesce(try(each.value.build_command, null), var.default_build_command)
+  deploy_command = coalesce(try(each.value.deploy_command, null), var.default_deploy_command)
+
   database_schema_id       = var.attach_database ? laravelcloud_database_schema.schemas[each.key].id : null
   cache_id                 = var.attach_cache ? laravelcloud_cache.caches[each.key].id : null
   websocket_application_id = var.attach_websocket ? laravelcloud_websocket_app.ws_apps[each.key].id : null
