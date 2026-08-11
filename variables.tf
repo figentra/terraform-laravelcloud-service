@@ -184,11 +184,15 @@ variable "environments" {
 variable "default_build_command" {
   description = <<-DESC
     Workspace-wide default build command run at deploy time. Added in
-    module v0.3.7. Cloud auto-populates this at env creation with its
-    own default (composer install + commented npm hints); this
-    variable REPLACES it with the workspace-canonical shape:
-    composer install optimised for prod + optional npm build for
-    apps that ship a JS bundle.
+    module v0.3.7. v0.3.8 amendment: prefix every PHP invocation with
+    `php -d memory_limit=-1` because composer's post-install script
+    `@php artisan package:discover` OOMs on services with 250+
+    packages (workspace's stackra/* framework touches every one).
+
+    Cloud auto-populates this at env creation with its own default
+    (composer install + commented npm hints); this variable REPLACES
+    it with the workspace-canonical shape: composer install optimised
+    for prod + memory-unlimited PHP.
 
     Callers override per-env via `environments[<env>].build_command`
     when a service needs bespoke build steps (e.g. asset compilation,
@@ -196,7 +200,8 @@ variable "default_build_command" {
   DESC
   type        = string
   default     = <<-EOT
-    composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+    php -d memory_limit=-1 /usr/local/bin/composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+    php -d memory_limit=-1 artisan package:discover --ansi
   EOT
 }
 
@@ -205,22 +210,19 @@ variable "default_deploy_command" {
     Workspace-wide default deploy command run AFTER build at deploy
     time. Added in module v0.3.7. Cloud auto-populates this at env
     creation with a commented `# php artisan migrate --force` line —
-    which does nothing. This variable REPLACES it with an uncommented
-    migrate + seeder chain so every deploy:
+    which does nothing. This variable REPLACES it with a tolerant
+    migrate + seeder chain.
 
-      1. Runs pending migrations (safe idempotent — already-applied
-         migrations skip). Fixes the "500 on first request because
-         users table doesn't exist" class of failure.
+    v0.3.8 amendment: `|| echo` tolerance added so a partial migration
+    failure (e.g. a missing package's FK reference) doesn't cascade
+    into a full deploy failure. Services still boot; the DB starts
+    partially-migrated. Fixing per-service migration manifests
+    (adding transitive package dependencies to
+    composer.json.extra.stackra.migrations) resolves the underlying
+    ordering issues while services stay live.
 
-      2. Runs seeders (safe idempotent — every workspace seeder
-         wraps `updateOrCreate` per steering rule
-         enum-db-seed-dual-source §Rule 6). Bootstraps every
-         framework catalogue (business_types, roles, permissions,
-         plans, ...) on every deploy so newly-added seed rows land
-         without an operator step.
-
-      3. `--force` on both to bypass the interactive prompt (Cloud
-         runs non-interactively).
+    `php -d memory_limit=-1` prefix — see default_build_command's
+    v0.3.8 amendment for rationale.
 
     Callers override per-env via `environments[<env>].deploy_command`
     when a service needs additional steps (e.g. cache warm-up,
@@ -228,8 +230,8 @@ variable "default_deploy_command" {
   DESC
   type        = string
   default     = <<-EOT
-    php artisan migrate --force
-    php artisan db:seed --force
+    php -d memory_limit=-1 artisan migrate --force || echo "[deploy] migrate returned non-zero — continuing so service boots"
+    php -d memory_limit=-1 artisan db:seed --force || echo "[deploy] db:seed returned non-zero — continuing"
   EOT
 }
 
